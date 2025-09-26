@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Snake game</title>
+<title>SNAKE GAME</title>
 <style>
   :root{ --btn-bg:#007bff; --btn-hover:#0056b3; }
   body{
@@ -31,19 +31,20 @@
 </head>
 <body>
   <h2>SNAKE GAME</h2>
+  <h1>PRESS START TO PLAY</h1>
   <div id="gameWrap"><canvas id="game"></canvas></div>
   <div class="controls">
     <button id="startBtn" class="control">Start</button>
     <button id="pauseBtn" class="control">Pause</button>
     <button id="restartBtn" class="control">Restart</button>
   </div>
-  <div class="note">Swipe to START (or use arrow keys).</div>
+  <div class="note">Swipe to move (or use arrow keys).</div>
 
 <script>
 /* ====== CONFIG ====== */
-const SEG = 20;               // segment diameter
+const SEG = 20;               
 const INITIAL_LEN = 5;
-const SPEED = 2.5;            // pixels per frame
+const SPEED = 2.5;            
 const COLLIDE_DIST = SEG * 0.6;
 const IGNORE_NEAR = 3;
 const HISTORY_LIMIT = 2000;
@@ -57,14 +58,14 @@ const restartBtn = document.getElementById('restartBtn');
 
 /* ====== STATE ====== */
 let head = { x: 200, y: 200 };
-let direction = { x: 0, y: 0 };     // committed movement
-let nextDirection = { x: 0, y: 0 }; // requested movement
+let direction = { x: 0, y: 0 };     
+let nextDirection = { x: 0, y: 0 }; 
 let history = [];
 let segmentsCount = INITIAL_LEN;
 let score = 0;
 let apple = { x: 0, y: 0 };
 let gameRunning = false;
-let hasMoved = false;   // true after first actual movement input
+let hasMoved = false;   
 let totalMoved = 0;
 let snakePositions = [];
 
@@ -75,7 +76,6 @@ function resizeCanvas(){
   CANVAS.width = Math.floor(size);
   CANVAS.height = Math.floor(size);
   head = { x: CANVAS.width/2, y: CANVAS.height/2 };
-  // preload history so segments have valid positions
   history = [];
   const preload = Math.max((INITIAL_LEN+5) * Math.ceil(SEG/SPEED), 60);
   for(let i=0;i<preload;i++) history.push({ x: head.x, y: head.y });
@@ -117,7 +117,7 @@ function spawnApple(){
   apple = cand;
 }
 
-/* ====== Path-based following (history -> segments) ====== */
+/* ====== Path-based following ====== */
 function getSegmentsFromHistory(requestedCount){
   const segs = [];
   const cum = [0];
@@ -150,17 +150,14 @@ function getSegmentsFromHistory(requestedCount){
 
 /* ====== Update & collision ====== */
 function update(){
-  // if no movement requested, compute positions from history but do not move head
   if(nextDirection.x === 0 && nextDirection.y === 0){
     snakePositions = getSegmentsFromHistory(segmentsCount);
     return;
   }
 
-  // move head
   head.x += nextDirection.x;
   head.y += nextDirection.y;
 
-  // wrap
   if(head.x < 0) head.x += CANVAS.width;
   if(head.x > CANVAS.width) head.x -= CANVAS.width;
   if(head.y < 0) head.y += CANVAS.height;
@@ -170,35 +167,32 @@ function update(){
   if(!hasMoved && movedThisFrame > 0) hasMoved = true;
   if(hasMoved) totalMoved += movedThisFrame;
 
-  // record head position in history
   history.unshift({ x: head.x, y: head.y });
   if(history.length > HISTORY_LIMIT) history.pop();
 
-  // compute segment positions
   snakePositions = getSegmentsFromHistory(segmentsCount);
 
-  // eat apple?
+  // 🔊 Eat apple
   if(dist({x:head.x,y:head.y}, apple) < SEG){
     score++;
     segmentsCount += 2;
     spawnApple();
+    document.getElementById("eatSound").play();
   }
 
-  // collision: only if moved enough and snake has grown
   const MIN_MOVE_FOR_COLLIDE = SEG * INITIAL_LEN;
   if(hasMoved && totalMoved > MIN_MOVE_FOR_COLLIDE && segmentsCount > INITIAL_LEN){
     const startCheck = Math.max(IGNORE_NEAR, Math.floor(snakePositions.length * 0.15));
     for(let i=startCheck;i<snakePositions.length;i++){
       if(dist(snakePositions[0], snakePositions[i]) < COLLIDE_DIST){
         gameRunning = false;
+        document.getElementById("gameOverSound").play(); // 🔊 Game over
         alert(`Game Over! Score: ${score}`);
         initGame();
         return;
       }
     }
   }
-
-  // commit direction after movement so 180° prevention uses current direction
   direction = { ...nextDirection };
 }
 
@@ -206,11 +200,9 @@ function update(){
 function draw(){
   ctx.clearRect(0,0,CANVAS.width,CANVAS.height);
 
-  // apple
   ctx.fillStyle = 'red';
   ctx.beginPath(); ctx.arc(apple.x, apple.y, SEG/2, 0, Math.PI*2); ctx.fill();
 
-  // snake
   for(let i=0;i<snakePositions.length;i++){
     const p = snakePositions[i];
     const alpha = 1 - (i / (snakePositions.length || 1)) * 0.6;
@@ -218,7 +210,6 @@ function draw(){
     ctx.beginPath(); ctx.arc(p.x, p.y, SEG/2, 0, Math.PI*2); ctx.fill();
   }
 
-  // score
   ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Segoe UI';
   ctx.fillText(`Score: ${score}`, 10, CANVAS.height - 10);
 }
@@ -231,25 +222,19 @@ function loop(){
   requestAnimationFrame(loop);
 }
 
-/* ====== Controls: Keyboard + Touch Swipe ====== */
-// Keyboard
+/* ====== Controls ====== */
 document.addEventListener('keydown', (e) => {
   const keys = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
   if(!keys.includes(e.key)) return;
-
   let requested = {x:0,y:0};
   if(e.key === 'ArrowLeft') requested = {x:-SPEED,y:0};
   if(e.key === 'ArrowRight') requested = {x:SPEED,y:0};
   if(e.key === 'ArrowUp') requested = {x:0,y:-SPEED};
   if(e.key === 'ArrowDown') requested = {x:0,y:SPEED};
-
-  // prevent 180° reversal comparing to committed direction
   if(!(direction.x === 0 && direction.y === 0)){
     if(requested.x === -direction.x && requested.y === -direction.y) return;
   }
-
   nextDirection = requested;
-
   if(!gameRunning && !hasMoved && (nextDirection.x !== 0 || nextDirection.y !== 0)){
     hasMoved = true;
     totalMoved = 0;
@@ -259,23 +244,20 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Touch swipe (touch only)
+/* ====== Touch swipe ====== */
 let touchStartX = null, touchStartY = null;
 const SWIPE_MIN = 24;
-
 CANVAS.addEventListener('touchstart', e => {
   if(e.touches && e.touches[0]){
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
   }
 }, {passive:true});
-
 CANVAS.addEventListener('touchend', e => {
   if(touchStartX === null) return;
   const t = (e.changedTouches && e.changedTouches[0]) || e.touches[0];
   const dx = (t.clientX - touchStartX);
   const dy = (t.clientY - touchStartY);
-
   if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_MIN){
     if(dx > 0) setTouchDirection(1,0); else setTouchDirection(-1,0);
   } else if(Math.abs(dy) > SWIPE_MIN){
@@ -283,7 +265,6 @@ CANVAS.addEventListener('touchend', e => {
   }
   touchStartX = null; touchStartY = null;
 }, {passive:true});
-
 CANVAS.addEventListener('touchmove', e => { e.preventDefault(); }, {passive:false});
 
 function setTouchDirection(dxUnit, dyUnit){
@@ -304,7 +285,6 @@ function setTouchDirection(dxUnit, dyUnit){
 /* ====== Buttons ====== */
 startBtn.onclick = ()=> {
   if(!gameRunning){
-    // Starting loop even if there's no movement yet is safe (collision gated by hasMoved/totalMoved)
     gameRunning = true;
     requestAnimationFrame(loop);
   }
@@ -312,14 +292,13 @@ startBtn.onclick = ()=> {
 pauseBtn.onclick = ()=> { gameRunning = false; };
 restartBtn.onclick = ()=> { initGame(); };
 
-/* ====== Prevent page scroll on touch within canvas area ====== */
-['touchstart','touchmove','touchend'].forEach(evt => {
-  CANVAS.addEventListener(evt, e => e.preventDefault(), {passive:false});
-});
-
 /* ====== Boot ====== */
 resizeCanvas();
 initGame();
 </script>
+
+<!-- 🔊 Your sound effects -->
+<audio id="eatSound" src="mixkit-hard-pop-click-2364.wav" preload="auto"></audio>
+<audio id="gameOverSound" src="mixkit-game-over-dark-orchestra-633.wav" preload="auto"></audio>
 </body>
 </html>
