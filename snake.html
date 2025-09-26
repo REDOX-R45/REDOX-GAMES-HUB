@@ -183,7 +183,7 @@ function update(){
     score++;
     segmentsCount += 2;
     spawnApple();
-    document.getElementById("eatSound").play();
+    document.getElementById("mixkit-hard-pop-click-2364").play();
   }
 
   // collision: only if moved enough and snake has grown
@@ -193,7 +193,7 @@ function update(){
     for(let i=startCheck;i<snakePositions.length;i++){
       if(dist(snakePositions[0], snakePositions[i]) < COLLIDE_DIST){
         gameRunning = false;
-        document.getElementById("gameOverSound").play();
+        document.getElementById("mixkit-game-over-dark-orchestra-633").play();
         alert(`Game Over! Score: ${score}`);
         initGame();
         return;
@@ -324,10 +324,11 @@ restartBtn.onclick = ()=> { initGame(); };
 resizeCanvas();
 initGame();
 <audio id="mixkit-hard-pop-click-2364.wav" src="mixkit-hard-pop-click-2364.wav" preload="auto"></audio>
-<audio id="mixkit-hard-pop-click-2364.wav" src="mixkit-hard-pop-click-2364.wav" preload="auto"></audio>
+<audio id="mixkit-game-over-dark-orchestra-633.wav" src="mixkit-game-over-dark-orchestra-633.wav" preload="auto"></audio>
 </script>
 </body>
 </html>
+
 
 
 
