@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Smooth Snake — Touch + Keyboard</title>
+<style>
+  :root{ --btn-bg:#007bff; --btn-hover:#0056b3; }
+  body{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    height:100vh;margin:0;background:linear-gradient(#0f2027,#2c5364);
+    font-family:Segoe UI,Roboto,Arial,Helvetica,sans-serif;
+    -webkit-touch-callout:none;user-select:none;-webkit-user-select:none;-ms-user-select:none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h2{ color:#fff; margin:14px 0 6px; font-weight:300; }
+  #gameWrap{ position:relative; display:flex; align-items:center; justify-content:center; }
+  canvas{
+    background:#111;border-radius:10px;border:3px solid #fff;
+    box-shadow:0 6px 18px rgba(0,0,0,.5); touch-action: none;
+  }
+  .controls{ margin:12px 0; display:flex; gap:10px; justify-content:center; }
+  button.control{
+    padding:9px 16px;border-radius:16px;border:none;background:var(--btn-bg);
+    color:#fff;font-size:15px;cursor:pointer;
+  }
+  button.control:hover{ background:var(--btn-hover); }
+  .note { color:#ddd; font-size:13px; margin-top:6px; opacity:0.9; text-align:center; }
+  @media (max-width:420px){ button.control{ padding:8px 12px; font-size:14px; } }
+</style>
+</head>
+<body>
+  <h2>Smooth Snake — Touch + Keyboard</h2>
+  <div id="gameWrap"><canvas id="game"></canvas></div>
+  <div class="controls">
+    <button id="startBtn" class="control">Start</button>
+    <button id="pauseBtn" class="control">Pause</button>
+    <button id="restartBtn" class="control">Restart</button>
+  </div>
+  <div class="note">Swipe the canvas (or use arrow keys). Press Start to run the loop (moving starts on input).</div>
+
+<script>
+/* ====== CONFIG ====== */
+const SEG = 20;               // segment diameter
+const INITIAL_LEN = 5;
+const SPEED = 2.5;            // pixels per frame
+const COLLIDE_DIST = SEG * 0.6;
+const IGNORE_NEAR = 3;
+const HISTORY_LIMIT = 2000;
+
+/* ====== DOM ====== */
+const CANVAS = document.getElementById('game');
+const ctx = CANVAS.getContext('2d');
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const restartBtn = document.getElementById('restartBtn');
+
+/* ====== STATE ====== */
+let head = { x: 200, y: 200 };
+let direction = { x: 0, y: 0 };     // committed movement
+let nextDirection = { x: 0, y: 0 }; // requested movement
+let history = [];
+let segmentsCount = INITIAL_LEN;
+let score = 0;
+let apple = { x: 0, y: 0 };
+let gameRunning = false;
+let hasMoved = false;   // true after first actual movement input
+let totalMoved = 0;
+let snakePositions = [];
+
+/* ====== Responsive canvas ====== */
+function resizeCanvas(){
+  const margin = 28;
+  const size = Math.min(520, Math.max(260, window.innerWidth - margin*2));
+  CANVAS.width = Math.floor(size);
+  CANVAS.height = Math.floor(size);
+  head = { x: CANVAS.width/2, y: CANVAS.height/2 };
+  // preload history so segments have valid positions
+  history = [];
+  const preload = Math.max((INITIAL_LEN+5) * Math.ceil(SEG/SPEED), 60);
+  for(let i=0;i<preload;i++) history.push({ x: head.x, y: head.y });
+  spawnApple();
+  draw();
+}
+window.addEventListener('resize', resizeCanvas);
+
+/* ====== Helpers ====== */
+function rand(min,max){ return Math.random()*(max-min)+min; }
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+/* ====== Init & Apple ====== */
+function initGame(){
+  head = { x: CANVAS.width/2, y: CANVAS.height/2 };
+  direction = { x: 0, y: 0 };
+  nextDirection = { x: 0, y: 0 };
+  history = [];
+  const preload = Math.max((INITIAL_LEN+5) * Math.ceil(SEG/SPEED), 60);
+  for(let i=0;i<preload;i++) history.push({ x: head.x, y: head.y });
+  segmentsCount = INITIAL_LEN;
+  score = 0;
+  hasMoved = false;
+  totalMoved = 0;
+  snakePositions = [];
+  spawnApple();
+  draw();
+}
+
+function spawnApple(){
+  let safe=false, cand;
+  while(!safe){
+    cand = { x: rand(SEG, CANVAS.width-SEG), y: rand(SEG, CANVAS.height-SEG) };
+    safe = true;
+    for(let i=0;i<Math.min(history.length, segmentsCount*5); i++){
+      if(dist(cand, history[i]) < SEG*1.5){ safe=false; break; }
+    }
+  }
+  apple = cand;
+}
+
+/* ====== Path-based following (history -> segments) ====== */
+function getSegmentsFromHistory(requestedCount){
+  const segs = [];
+  const cum = [0];
+  for(let i=1;i<history.length;i++) cum[i] = cum[i-1] + dist(history[i-1], history[i]);
+  for(let s=0; s<requestedCount; s++){
+    const target = s * SEG;
+    if(cum[cum.length-1] < target){
+      segs.push({ ...history[history.length-1] });
+      continue;
+    }
+    let lo=0, hi=cum.length-1;
+    while(lo<hi){
+      const mid = Math.floor((lo+hi)/2);
+      if(cum[mid] >= target) hi = mid;
+      else lo = mid+1;
+    }
+    if(lo===0) segs.push({ ...history[0] });
+    else {
+      const after = history[lo], before = history[lo-1];
+      const used = cum[lo] - target;
+      const interval = cum[lo] - cum[lo-1];
+      const t = interval === 0 ? 0 : (1 - used/interval);
+      const x = before.x + (after.x - before.x) * t;
+      const y = before.y + (after.y - before.y) * t;
+      segs.push({ x, y });
+    }
+  }
+  return segs;
+}
+
+/* ====== Update & collision ====== */
+function update(){
+  // if no movement requested, compute positions from history but do not move head
+  if(nextDirection.x === 0 && nextDirection.y === 0){
+    snakePositions = getSegmentsFromHistory(segmentsCount);
+    return;
+  }
+
+  // move head
+  head.x += nextDirection.x;
+  head.y += nextDirection.y;
+
+  // wrap
+  if(head.x < 0) head.x += CANVAS.width;
+  if(head.x > CANVAS.width) head.x -= CANVAS.width;
+  if(head.y < 0) head.y += CANVAS.height;
+  if(head.y > CANVAS.height) head.y -= CANVAS.height;
+
+  const movedThisFrame = Math.hypot(nextDirection.x, nextDirection.y);
+  if(!hasMoved && movedThisFrame > 0) hasMoved = true;
+  if(hasMoved) totalMoved += movedThisFrame;
+
+  // record head position in history
+  history.unshift({ x: head.x, y: head.y });
+  if(history.length > HISTORY_LIMIT) history.pop();
+
+  // compute segment positions
+  snakePositions = getSegmentsFromHistory(segmentsCount);
+
+  // eat apple?
+  if(dist({x:head.x,y:head.y}, apple) < SEG){
+    score++;
+    segmentsCount += 2;
+    spawnApple();
+  }
+
+  // collision: only if moved enough and snake has grown
+  const MIN_MOVE_FOR_COLLIDE = SEG * INITIAL_LEN;
+  if(hasMoved && totalMoved > MIN_MOVE_FOR_COLLIDE && segmentsCount > INITIAL_LEN){
+    const startCheck = Math.max(IGNORE_NEAR, Math.floor(snakePositions.length * 0.15));
+    for(let i=startCheck;i<snakePositions.length;i++){
+      if(dist(snakePositions[0], snakePositions[i]) < COLLIDE_DIST){
+        gameRunning = false;
+        alert(`Game Over! Score: ${score}`);
+        initGame();
+        return;
+      }
+    }
+  }
+
+  // commit direction after movement so 180° prevention uses current direction
+  direction = { ...nextDirection };
+}
+
+/* ====== Draw ====== */
+function draw(){
+  ctx.clearRect(0,0,CANVAS.width,CANVAS.height);
+
+  // apple
+  ctx.fillStyle = 'red';
+  ctx.beginPath(); ctx.arc(apple.x, apple.y, SEG/2, 0, Math.PI*2); ctx.fill();
+
+  // snake
+  for(let i=0;i<snakePositions.length;i++){
+    const p = snakePositions[i];
+    const alpha = 1 - (i / (snakePositions.length || 1)) * 0.6;
+    ctx.fillStyle = `rgba(0,255,0,${alpha})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, SEG/2, 0, Math.PI*2); ctx.fill();
+  }
+
+  // score
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Segoe UI';
+  ctx.fillText(`Score: ${score}`, 10, CANVAS.height - 10);
+}
+
+/* ====== Loop ====== */
+function loop(){
+  if(!gameRunning) return;
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* ====== Controls: Keyboard + Touch Swipe ====== */
+// Keyboard
+document.addEventListener('keydown', (e) => {
+  const keys = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
+  if(!keys.includes(e.key)) return;
+
+  let requested = {x:0,y:0};
+  if(e.key === 'ArrowLeft') requested = {x:-SPEED,y:0};
+  if(e.key === 'ArrowRight') requested = {x:SPEED,y:0};
+  if(e.key === 'ArrowUp') requested = {x:0,y:-SPEED};
+  if(e.key === 'ArrowDown') requested = {x:0,y:SPEED};
+
+  // prevent 180° reversal comparing to committed direction
+  if(!(direction.x === 0 && direction.y === 0)){
+    if(requested.x === -direction.x && requested.y === -direction.y) return;
+  }
+
+  nextDirection = requested;
+
+  if(!gameRunning && !hasMoved && (nextDirection.x !== 0 || nextDirection.y !== 0)){
+    hasMoved = true;
+    totalMoved = 0;
+    direction = {...nextDirection};
+    gameRunning = true;
+    requestAnimationFrame(loop);
+  }
+});
+
+// Touch swipe (touch only)
+let touchStartX = null, touchStartY = null;
+const SWIPE_MIN = 24;
+
+CANVAS.addEventListener('touchstart', e => {
+  if(e.touches && e.touches[0]){
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+}, {passive:true});
+
+CANVAS.addEventListener('touchend', e => {
+  if(touchStartX === null) return;
+  const t = (e.changedTouches && e.changedTouches[0]) || e.touches[0];
+  const dx = (t.clientX - touchStartX);
+  const dy = (t.clientY - touchStartY);
+
+  if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE_MIN){
+    if(dx > 0) setTouchDirection(1,0); else setTouchDirection(-1,0);
+  } else if(Math.abs(dy) > SWIPE_MIN){
+    if(dy > 0) setTouchDirection(0,1); else setTouchDirection(0,-1);
+  }
+  touchStartX = null; touchStartY = null;
+}, {passive:true});
+
+CANVAS.addEventListener('touchmove', e => { e.preventDefault(); }, {passive:false});
+
+function setTouchDirection(dxUnit, dyUnit){
+  const requested = { x: dxUnit * SPEED, y: dyUnit * SPEED };
+  if(!(direction.x === 0 && direction.y === 0)){
+    if(requested.x === -direction.x && requested.y === -direction.y) return;
+  }
+  nextDirection = requested;
+  if(!gameRunning && !hasMoved && (nextDirection.x !== 0 || nextDirection.y !== 0)){
+    hasMoved = true;
+    totalMoved = 0;
+    direction = {...nextDirection};
+    gameRunning = true;
+    requestAnimationFrame(loop);
+  }
+}
+
+/* ====== Buttons ====== */
+startBtn.onclick = ()=> {
+  if(!gameRunning){
+    // Starting loop even if there's no movement yet is safe (collision gated by hasMoved/totalMoved)
+    gameRunning = true;
+    requestAnimationFrame(loop);
+  }
+};
+pauseBtn.onclick = ()=> { gameRunning = false; };
+restartBtn.onclick = ()=> { initGame(); };
+
+/* ====== Prevent page scroll on touch within canvas area ====== */
+['touchstart','touchmove','touchend'].forEach(evt => {
+  CANVAS.addEventListener(evt, e => e.preventDefault(), {passive:false});
+});
+
+/* ====== Boot ====== */
+resizeCanvas();
+initGame();
+</script>
+</body>
+</html>
